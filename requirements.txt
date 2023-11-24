@@ -1,0 +1,4 @@
+networkx>=3.2.0
+tqdm>=4.0.0
+numpy>=1.26.0
+geopy>=2.4.0
