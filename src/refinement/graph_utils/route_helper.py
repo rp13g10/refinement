@@ -115,7 +115,11 @@ class RouteHelper(ABC):
         return elevation_gain, elevation_loss
 
     def _estimate_distance_and_elevation_change(
-        self, start_id: int, end_id: int
+        self,
+        start_lat: float,
+        start_lon: float,
+        end_lat: float,
+        end_lon: float,
     ) -> Tuple[float, float, float]:
         """For a given start & end node, estimate the change in elevation when
         traversing the edge between them. The number of samples used to
@@ -131,8 +135,8 @@ class RouteHelper(ABC):
               and elevation loss
         """
         # Fetch lat/lon for the start/end nodes
-        start_lat, start_lon = self.fetch_node_coords(start_id)
-        end_lat, end_lon = self.fetch_node_coords(end_id)
+        # start_lat, start_lon = self.fetch_node_coords(start_id)
+        # end_lat, end_lon = self.fetch_node_coords(end_id)
 
         (
             lat_checkpoints,

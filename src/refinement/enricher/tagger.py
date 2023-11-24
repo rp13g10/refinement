@@ -3,11 +3,15 @@ is executed directly."""
 
 from itertools import repeat
 
+import networkx as nx
+import pandas as pd
+from dask.distributed import Client
 from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
 from networkx import Graph
+from cassandra.cluster import Cluster  # pylint: disable=no-name-in-module
 
-from relevation import get_elevation
+from relevation import get_elevation, get_distance_and_elevation_change
 
 from refinement.containers import RouteConfig
 from refinement.graph_utils.route_helper import RouteHelper
@@ -50,65 +54,57 @@ class GraphTagger(RouteHelper):
         # Store down core attributes
         super().__init__(graph, config)
 
-    def _enrich_source_nodes(self):
-        """For each node in the graph, attempt to fetch elevation info from
-        the loaded LIDAR data. If no elevation information is available, the
-        node will be dropped to minimise memory usage."""
+    def get_node_details(self):
+        all_coords = [
+            (node_id, node_attrs["lat"], node_attrs["lon"])
+            for node_id, node_attrs in self.graph.nodes.items()
+        ]
+        return all_coords
 
-        sorted_nodes = sorted(
-            sorted(
-                self.graph.nodes.items(),
-                key=lambda item: item[1]["lat"],
-            ),
-            key=lambda item: item[1]["lon"],
-        )
-
+    def apply_node_elevations(self, elevations):
         to_delete = set()
-        for node_id, node_attrs in sorted_nodes:
-            # Unpack coordinates
-            lat = node_attrs["lat"]
-            lon = node_attrs["lon"]
-
-            # Fetch elevation
-            try:
-                elevation = get_elevation(lat, lon)
-            except FileNotFoundError:
-                elevation = None
-
-            if not elevation:
-                # Mark node for deletion
-                to_delete.add(node_id)
-            else:
-                # Add elevation to node
+        for node_id, elevation in elevations:
+            if pd.notna(elevation):
                 self.graph.nodes[node_id]["elevation"] = elevation
+            else:
+                to_delete.add(node_id)
 
         # Remove nodes with no elevation data
         self.graph.remove_nodes_from(to_delete)
 
-    def _enrich_source_edges(self):
-        """For each edge in the graph, estimate the distance, elevation gain
-        and elevation loss when traversing it. Strip out all other metadata
-        to minimise the memory footprint of the graph.
-        """
-
-        sorted_edges = sorted(
-            sorted(
-                self.graph.edges(data=True),
-                key=lambda edge: self.fetch_node_coords(edge[0])[0],
-            ),
-            key=lambda edge: self.fetch_node_coords(edge[0])[0],
-        )
-
-        # Calculate elevation change & distance for each edge
-        for start_id, end_id, data in sorted_edges:
-            if "distance" in data:
-                continue
-
+    def get_edge_details(self):
+        all_edges = [
             (
-                dist_change,
-                elevation_gain,
-                elevation_loss,
-            ) = self._estimate_distance_and_elevation_change(start_id, end_id)
+                start_id,
+                self.fetch_node_coords(start_id),
+                end_id,
+                self.fetch_node_coords(end_id),
+            )
+            for start_id, end_id in self.graph.edges()
+        ]
+        all_edges = [
+            (start_id, start_lat, start_lon, end_id, end_lat, end_lon)
+            for start_id, (start_lat, start_lon), end_id, (
+                end_lat,
+                end_lon,
+            ) in all_edges
+        ]
+        return all_edges
+
+    def apply_edge_changes(self, edge_changes):
+        for (
+            start_id,
+            end_id,
+            dist_change,
+            elevation_gain,
+            elevation_loss,
+        ) in edge_changes:
+            data = self.graph[start_id][end_id]
+
+            if self.config.dist_mode == "metric":
+                dist_change = dist_change.kilometers
+            else:
+                dist_change = dist_change.miles
 
             data["distance"] = dist_change
             data["elevation_gain"] = elevation_gain
@@ -125,68 +121,40 @@ class GraphTagger(RouteHelper):
             for attr in to_remove:
                 del data[attr]
 
-    def tag_graph(
-        self,
-    ):
-        """Enrich the graph with elevation data, calculate the change in
-        elevation for each edge in the graph, and shrink the graph as much
-        as possible.
 
-        Args:
-            full_target_loc (Optional[str]): The location which the full graph
-              should be saved to (pre-compression). This will be helpful if you
-              intend on plotting any routes afterwards, as not all nodes will
-              be present in the compressed graph. Defaults to None.
-            cond_target_loc (Optional[str]): The loation which the condensed
-              graph should be saved to. Defaults to None.
-        """
-        self._enrich_source_nodes()
-        self._enrich_source_edges()
+# def tag_graph(graph: Graph, config: RouteConfig):
+#     # Split the graph across a grid
+#     splitter = GraphSplitter(graph)
+#     splitter.explode_graph()
 
+#     pbar = tqdm(total=len(splitter.subgraphs) + 1)
+#     for (lat_inx, lon_inx), subgraph in splitter.subgraphs.items():
+#         pbar.set_description(f"{lat_inx}:{lon_inx}")
+#         sub_tagger = GraphTagger(subgraph, config)
 
-def _tag_subgraph(subgraph: Graph, config: RouteConfig):
-    tagger = GraphTagger(subgraph, config)
-    tagger.tag_graph()
+#         sub_nodes = sub_tagger.get_node_details()
+#         sub_elevations = get_node_elevations(sub_nodes)
+#         sub_tagger.apply_node_elevations(sub_elevations)
 
-    return tagger.graph
+#         sub_edges = sub_tagger.get_edge_details()
+#         sub_edge_changes = get_edge_changes(sub_edges)
+#         sub_tagger.apply_edge_changes(sub_edge_changes)
 
+#         pbar.update(1)
 
-def _tag_subgraph_star(args):
-    return _tag_subgraph(*args)
+#     pbar.set_description("Mopup")
+#     splitter.rebuild_graph()
+#     mopup_tagger = GraphTagger(splitter.graph, config)
 
+#     mopup_nodes = mopup_tagger.get_node_details()
+#     mopup_elevations = get_node_elevations(mopup_nodes)
+#     mopup_tagger.apply_node_elevations(mopup_elevations)
 
-def tag_graph(graph: Graph, config: RouteConfig):
-    # Split the graph across a grid
-    splitter = GraphSplitter(graph, no_subgraphs=1000)
-    splitter.explode_graph()
+#     mopup_edges = mopup_tagger.get_edge_details()
+#     mopup_edge_changes = get_edge_changes(mopup_edges)
+#     mopup_tagger.apply_edge_changes(mopup_edge_changes)
 
-    # Process each grid separately
-    map_args = zip(splitter.subgraphs.values(), repeat(config))
+#     pbar.update(1)
+#     pbar.close()
 
-    # TODO: Build this functionality into the splitter class
-    new_subgraphs = process_map(
-        _tag_subgraph_star,
-        map_args,
-        desc="Enriching subgraphs",
-        tqdm_class=tqdm,
-        total=len(splitter.grid),
-        # max_workers=8,
-    )
-
-    # Re-combine the tagged subgraphs
-    # populated_squares = set()
-    for new_subgraph in new_subgraphs:
-        subgraph_id = new_subgraph.graph["grid_square"]
-        splitter.subgraphs[subgraph_id] = new_subgraph
-
-    # Clear out any grid squares not preset in the output
-    # for subgraph_id in list(splitter.subgraphs.keys()):
-    #     if subgraph_id not in populated_squares:
-    #         del splitter.subgraphs[subgraph_id]
-    splitter.rebuild_graph()
-
-    # Perform a mop-up to calculate elevation changes for the edges which
-    # spanned more than one subgraph
-    graph = _tag_subgraph(graph, config)
-
-    return graph
+#     return mopup_tagger.graph

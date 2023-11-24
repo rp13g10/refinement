@@ -13,7 +13,8 @@ from relevation import get_elevation
 
 from refinement.containers import RouteConfig
 from refinement.graph_utils.condenser import condense_graph
-from refinement.enricher.tagger import tag_graph
+
+# from refinement.enricher.tagger import tag_graph
 
 
 from refinement.graph_utils.route_helper import RouteHelper
@@ -86,33 +87,33 @@ class GraphEnricher(RouteHelper):
 
         return graph
 
-    def enrich_graph(
-        self,
-        full_target_loc: Optional[str] = None,
-        cond_target_loc: Optional[str] = None,
-    ):
-        """Enrich the graph with elevation data, calculate the change in
-        elevation for each edge in the graph, and shrink the graph as much
-        as possible.
+    # def enrich_graph(
+    #     self,
+    #     full_target_loc: Optional[str] = None,
+    #     cond_target_loc: Optional[str] = None,
+    # ):
+    #     """Enrich the graph with elevation data, calculate the change in
+    #     elevation for each edge in the graph, and shrink the graph as much
+    #     as possible.
 
-        Args:
-            full_target_loc (Optional[str]): The location which the full graph
-              should be saved to (pre-compression). This will be helpful if you
-              intend on plotting any routes afterwards, as not all nodes will
-              be present in the compressed graph. Defaults to None.
-            cond_target_loc (Optional[str]): The loation which the condensed
-              graph should be saved to. Defaults to None.
-        """
+    #     Args:
+    #         full_target_loc (Optional[str]): The location which the full graph
+    #           should be saved to (pre-compression). This will be helpful if you
+    #           intend on plotting any routes afterwards, as not all nodes will
+    #           be present in the compressed graph. Defaults to None.
+    #         cond_target_loc (Optional[str]): The loation which the condensed
+    #           graph should be saved to. Defaults to None.
+    #     """
 
-        self.graph = tag_graph(self.graph, self.config)
+    #     self.graph = tag_graph(self.graph, self.config)
 
-        if full_target_loc:
-            self.save_graph(full_target_loc)
+    #     if full_target_loc:
+    #         self.save_graph(full_target_loc)
 
-        self.graph = condense_graph(self.graph)
+    #     self.graph = condense_graph(self.graph)
 
-        if cond_target_loc:
-            self.save_graph(cond_target_loc)
+    #     if cond_target_loc:
+    #         self.save_graph(cond_target_loc)
 
     def save_graph(self, target_loc: str):
         """Once processed, pickle the graph to the local filesystem ready for
