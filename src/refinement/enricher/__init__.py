@@ -3,27 +3,15 @@ to the provided OSM graph."""
 
 import json
 import pickle
-from typing import Optional
 
-from tqdm import tqdm
 from networkx import Graph
 from networkx.readwrite import json_graph
 
-from relevation import get_elevation
 
-from refinement.containers import RouteConfig
-from refinement.graph_utils.condenser import condense_graph
-
-# from refinement.enricher.tagger import tag_graph
-
-
+from refinement.containers import TaggingConfig
 from refinement.graph_utils.route_helper import RouteHelper
-
-# TODO: Implement parallel processing for condensing of enriched graphs.
-#       Subdivide graph into grid, distribute condensing of each subgraph
-#       then stitch the results back together. Final pass will be required to
-#       process any edges which were temporarily removed as they bridged
-#       multiple subgraphs.
+from refinement.enricher.tagger import GraphTagger
+from refinement.graph_utils.condenser import condense_graph
 
 
 class GraphEnricher(RouteHelper):
@@ -36,7 +24,7 @@ class GraphEnricher(RouteHelper):
     def __init__(
         self,
         source_path: str,
-        config: RouteConfig,
+        config: TaggingConfig,
     ):
         """Create an instance of the graph enricher class based on the
         contents of the networkx graph specified by `source_path`
@@ -49,14 +37,6 @@ class GraphEnricher(RouteHelper):
         """
 
         # Store down user preferences
-        msg = (
-            'mode must be one of "metric", "imperial". '
-            f'Got "{config.dist_mode}"'
-        )
-        assert config.dist_mode in {
-            "metric",
-            "imperial",
-        }, msg
         self.config = config
 
         # Read in the contents of the graph
@@ -64,6 +44,8 @@ class GraphEnricher(RouteHelper):
 
         # Store down core attributes
         super().__init__(graph, config)
+
+        self.tagger = GraphTagger(self.graph, self.config)
 
     def load_graph(self, source_path: str) -> Graph:
         """Read in the contents of the JSON file specified by `source_path`
@@ -87,33 +69,20 @@ class GraphEnricher(RouteHelper):
 
         return graph
 
-    # def enrich_graph(
-    #     self,
-    #     full_target_loc: Optional[str] = None,
-    #     cond_target_loc: Optional[str] = None,
-    # ):
-    #     """Enrich the graph with elevation data, calculate the change in
-    #     elevation for each edge in the graph, and shrink the graph as much
-    #     as possible.
+    def enrich_graph(self):
+        """Process the provided graph, tagging all nodes and edges with
+        elevation data. This requires that a cassandra database with LIDAR data
+        available be running."""
+        self.tagger.tag_nodes()
+        self.tagger.tag_edges()
 
-    #     Args:
-    #         full_target_loc (Optional[str]): The location which the full graph
-    #           should be saved to (pre-compression). This will be helpful if you
-    #           intend on plotting any routes afterwards, as not all nodes will
-    #           be present in the compressed graph. Defaults to None.
-    #         cond_target_loc (Optional[str]): The loation which the condensed
-    #           graph should be saved to. Defaults to None.
-    #     """
-
-    #     self.graph = tag_graph(self.graph, self.config)
-
-    #     if full_target_loc:
-    #         self.save_graph(full_target_loc)
-
-    #     self.graph = condense_graph(self.graph)
-
-    #     if cond_target_loc:
-    #         self.save_graph(cond_target_loc)
+    def condense_graph(self):
+        """Reduce the size of the internal graph by removing any nodes which
+        do not correspond to a junction. Paths/roads will be represented by
+        a single edge, rather than a chain of edges. The intermediate nodes
+        traversed by each edge will instead be recorded in the 'via' attribute
+        of each new edge."""
+        self.graph = condense_graph(self.graph)
 
     def save_graph(self, target_loc: str):
         """Once processed, pickle the graph to the local filesystem ready for

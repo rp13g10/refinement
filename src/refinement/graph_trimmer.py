@@ -4,10 +4,8 @@ distance from the start point"""
 from networkx import Graph, shortest_path_length
 from networkx.exception import NetworkXNoPath
 from refinement.containers import RouteConfig, BBox
-from refinement.tools.route_graph import GraphUtils
 
-# TODO: Change distance to start calculations to use shortest path rather than
-#       straight line distance, may save some wasted compute
+from refinement.graph_utils.route_helper import GraphUtils
 
 
 class GraphTrimmer(GraphUtils):
@@ -36,7 +34,9 @@ class GraphTrimmer(GraphUtils):
               calculation. Defaults to 10.
         """
 
-        super().__init__(graph, config)
+        super().__init__(graph)
+
+        self.config = config
 
     def _check_if_node_is_in_target_area(
         self, node_id: int, bbox: BBox
@@ -75,10 +75,9 @@ class GraphTrimmer(GraphUtils):
         start_lon = self.graph.nodes[start_node]["lon"]
 
         max_dist = self.config.max_distance
-        dist_mode = self.config.dist_mode
 
-        # NOTE: 1 degree ~ 69mi/111km
-        factor = 111 if dist_mode == "metric" else 69
+        # NOTE: 1 degree ~ 111km
+        factor = 111
 
         # 5% safety net as this is a very crude estimate
         delta = (max_dist / 2) / (factor * 1.05)
@@ -125,7 +124,7 @@ class GraphTrimmer(GraphUtils):
                 _,
                 gain_to_start,
                 loss_to_start,
-            ) = self._get_straight_line_distance_and_elevation_change(
+            ) = self.get_straight_line_distance_and_elevation_change(
                 start_node, node_id
             )
 

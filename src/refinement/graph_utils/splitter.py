@@ -10,9 +10,6 @@ from networkx import Graph, compose
 
 from refinement.containers import BBox
 
-# TODO: Enable splitting by node attribute, for enrichment split by required
-#       lidar data file
-
 
 class GraphSplitter:
     """Class which can split a graph into a grid of subgraphs according to

@@ -1,8 +1,4 @@
-"""Contains the GraphEnricher class, which will be executed if this script
-is executed directly."""
-
 import math
-from abc import ABC
 from typing import List, Tuple
 
 import numpy as np
@@ -11,28 +7,21 @@ from networkx import Graph
 
 from relevation import get_elevation
 
-from refinement.containers import RouteConfig
+from refinement.containers import TaggingConfig
+from refinement.graph_utils import GraphUtils
 
 
 # TODO: Implement parallel processing for condensing of enriched graphs.
 
 
-class RouteHelper(ABC):
+class RouteHelper(GraphUtils):
     """Contains utility functions which are useful when manipulating data which
     relates to the fiding of running routes.
     """
 
-    def __init__(self, graph: Graph, config: RouteConfig):
+    def __init__(self, graph: Graph, config: TaggingConfig):
         self.graph = graph
         self.config = config
-
-    def fetch_node_coords(self, node_id: int) -> Tuple[int, int]:
-        """Convenience function, retrieves the latitude and longitude for a
-        single node in a graph."""
-        node = self.graph.nodes[node_id]
-        lat = node["lat"]
-        lon = node["lon"]
-        return lat, lon
 
     def _get_elevation_checkpoints(
         self,
@@ -134,9 +123,6 @@ class RouteHelper(ABC):
             Tuple[float, float, float]: The distance change, elevation gain
               and elevation loss
         """
-        # Fetch lat/lon for the start/end nodes
-        # start_lat, start_lon = self.fetch_node_coords(start_id)
-        # end_lat, end_lon = self.fetch_node_coords(end_id)
 
         (
             lat_checkpoints,
@@ -153,43 +139,6 @@ class RouteHelper(ABC):
             lat_checkpoints, lon_checkpoints
         )
 
-        # Retrieve distance in the desired form
-        if self.config.dist_mode == "metric":
-            dist_change = float(dist_change.km)
-        else:
-            dist_change = float(dist_change.miles)
+        dist_change = float(dist_change.km)
 
         return dist_change, elevation_gain, elevation_loss
-
-    def _get_straight_line_distance_and_elevation_change(
-        self, start_id: int, end_id: int
-    ) -> Tuple[float, float, float]:
-        """Calculate the change in elevation accrued when travelling in a
-        straight line from one node to another
-
-        Args:
-            start_id (int): The ID of the start node
-            end_id (int): The ID of the end node
-
-        Returns:
-            Tuple[float, float, float]: The distance from start_id to end_id,
-              the elevation gain and the elevation loss
-        """
-
-        # Elevation change
-        start_ele = self.graph.nodes[start_id]["elevation"]
-        end_ele = self.graph.nodes[end_id]["elevation"]
-        change = end_ele - start_ele
-        gain = max(0, change)
-        loss = abs(min(0, change))
-
-        # Distance change
-        start_lat, start_lon = self.fetch_node_coords(start_id)
-        end_lat, end_lon = self.fetch_node_coords(end_id)
-        dist = distance((start_lat, start_lon), (end_lat, end_lon))
-        if self.config.dist_mode == "metric":
-            dist = dist.kilometers
-        else:
-            dist = dist.miles
-
-        return dist, gain, loss

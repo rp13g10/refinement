@@ -225,7 +225,8 @@ class GraphCondenser:
 
         Args:
             _iter (int, optional): The number of times this function has been
-              called. Defaults to 0.
+              called. This is incremented automatically and should not be
+              configured by the user. Defaults to 0.
         """
         self._remove_isolates()
         self._refresh_node_lists()
