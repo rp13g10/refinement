@@ -3,3 +3,5 @@
 data/*
 *.egg-info
 .vscode/*
+*.eggs
+build/*

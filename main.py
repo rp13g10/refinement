@@ -17,10 +17,17 @@ enricher = GraphEnricher(
 )
 # enricher.enrich_graph()
 
-enricher.enrich_graph()
+# enricher.enrich_graph()
+enricher.tagger._prepare_nodes()
+enricher.tagger._precompute_node_elevations()
+enricher.tagger._apply_node_elevations()
+enricher.store_graph('graph_with_nodes.nx')
 
 enricher.save_graph("/home/ross/repos/refinement/data/full_graph.nx")
 
 enricher.condense_graph()
 
 enricher.save_graph("/home/ross/repos/refinement/data/condensed_graph.nx")
+
+
+# TODO: Figure out how to structure this properly for execution with Dash

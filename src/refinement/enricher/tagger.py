@@ -77,14 +77,14 @@ class GraphTagger(RouteHelper):
             root_path=os.path.join(self.config.data_dir, "nodes"),
             partition_cols=["bucket"],
         )
-        self._uncache_graph()
+        # self._uncache_graph()
 
     @staticmethod
     def _get_elevation_for_row(row):
         return get_elevation(row.lat, row.lon)
 
     def _precompute_node_elevations(self):
-        self._cache_graph()
+        # self._cache_graph()
         client = Client()
         nodes_df = dd.read_parquet(  # type: ignore
             os.path.join(self.config.data_dir, "nodes")
@@ -100,9 +100,10 @@ class GraphTagger(RouteHelper):
             partition_on=["bucket"],
         )
         client.close()
-        self._uncache_graph()
+        # self._uncache_graph()
 
     def _apply_node_elevations(self):
+        self._uncache_graph()
         elevations_df = pd.read_parquet(
             os.path.join(self.config.data_dir, "node_elevations")
         )
