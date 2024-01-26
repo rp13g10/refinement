@@ -304,9 +304,9 @@ def condense_graph(graph: Graph) -> Graph:
     """
 
     # Split the graph across a grid
-    graph_nodes = ceil(len(graph.nodes) / 10000)
+    no_subgraphs = ceil(len(graph.nodes) / 10000)
 
-    splitter = GraphSplitter(graph, no_subgraphs=1000)
+    splitter = GraphSplitter(graph, no_subgraphs=no_subgraphs)
     splitter.explode_graph()
     cb_nodes = splitter.edge_nodes
 

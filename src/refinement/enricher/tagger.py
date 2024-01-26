@@ -6,6 +6,7 @@ this can be an extremely heavy script. It is however set up to scale, so
 should be well suited to containerised execution."""
 
 import os
+from math import ceil
 from typing import List, Tuple
 
 import pandas as pd
@@ -107,6 +108,7 @@ class GraphTagger(RouteHelper):
         )
 
         nodes_df = self.sql.createDataFrame(data=node_list, schema=node_schema)
+        nodes_df = nodes_df.repartition(ceil(len(node_list)/10000))
 
         return nodes_df
 
@@ -213,6 +215,7 @@ class GraphTagger(RouteHelper):
             ]
         )
         edge_df = self.sql.createDataFrame(data=edge_list, schema=edge_schema)
+        edge_df = edge_df.repartition(ceil(len(edge_list)/10000))
 
         return edge_df
 
@@ -298,6 +301,6 @@ class GraphTagger(RouteHelper):
         try:
             self.load_graph("graph_with_edges.nx")
         except FileNotFoundError:
-            # self._precompute_edge_elevations()
+            self._precompute_edge_elevations()
             self._apply_edge_changes()
             self.store_graph("graph_with_edges.nx")
