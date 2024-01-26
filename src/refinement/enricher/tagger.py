@@ -249,7 +249,7 @@ class GraphTagger(RouteHelper):
         )
 
         edge_df = edge_df.write.parquet(
-            os.path.join(self.config.data_dir, "edges")
+            os.path.join(self.config.data_dir, "edge_elevations")
         )
 
     def _apply_edge_changes(self):
@@ -263,13 +263,11 @@ class GraphTagger(RouteHelper):
         for _, row in edge_changes_df.iterrows():
             start_id = row["start_id"]  # type: ignore
             end_id = row["end_id"]  # type: ignore
-            dist_change = row["dist_change"]  # type: ignore
+            dist_change = row["distance"]  # type: ignore
             elevation_gain = row["elevation_gain"]  # type: ignore
             elevation_loss = row["elevation_loss"]  # type: ignore
 
             data = self.graph[start_id][end_id]
-
-            dist_change = dist_change.kilometers
 
             data["distance"] = dist_change
             data["elevation_gain"] = elevation_gain
@@ -286,6 +284,13 @@ class GraphTagger(RouteHelper):
             for attr in to_remove:
                 del data[attr]
 
+        # to_remove = set()
+        # for start_id, end_id in self.graph.edges():
+        #     data = self.graph[start_id][end_id]
+        #     if "distance" not in data:
+        #         to_remove.add((start_id, end_id))
+        # self.graph.remove_edges_from(to_remove)
+
     def tag_edges(self):
         """Enriches all of the edges in the internal graph with distances,
         elevation gains and elevation losses. This should not be called
@@ -293,6 +298,6 @@ class GraphTagger(RouteHelper):
         try:
             self.load_graph("graph_with_edges.nx")
         except FileNotFoundError:
-            self._precompute_edge_elevations()
+            # self._precompute_edge_elevations()
             self._apply_edge_changes()
             self.store_graph("graph_with_edges.nx")

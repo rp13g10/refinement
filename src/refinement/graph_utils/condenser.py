@@ -2,6 +2,7 @@
 is executed directly."""
 
 from itertools import repeat
+from math import ceil
 from typing import List, Set, Tuple, Union
 
 import networkx as nx
@@ -303,6 +304,8 @@ def condense_graph(graph: Graph) -> Graph:
     """
 
     # Split the graph across a grid
+    graph_nodes = ceil(len(graph.nodes) / 10000)
+
     splitter = GraphSplitter(graph, no_subgraphs=1000)
     splitter.explode_graph()
     cb_nodes = splitter.edge_nodes

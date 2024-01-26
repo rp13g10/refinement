@@ -12,6 +12,7 @@ from refinement.enricher import GraphEnricher
 
 # TODO: Evaluate memory footprint of networkx graph, if necessary look at
 #       ways to parallelize it
+# TODO: Evaluate potential for switching over to Apache GraphX
 
 config = TaggingConfig(
     data_dir="/home/ross/repos/refinement/data",
@@ -24,20 +25,8 @@ enricher = GraphEnricher(
 )
 enricher.enrich_graph()
 
-# NOTE: Need to confirm that enricher.graph and tagger.graph are indeed
-#       exactly the same object
-
-# enricher.enrich_graph()
-# enricher.tagger._prepare_nodes()
-# enricher.tagger._precompute_node_elevations()
-# enricher.tagger._apply_node_elevations()
-# enricher.store_graph('graph_with_nodes.nx')
-
 enricher.save_graph(os.path.join(config.data_dir, "full_graph.nx"))
 
 enricher.condense_graph()
 
 enricher.save_graph(os.path.join(config.data_dir, "condensed_graph.nx"))
-
-
-# TODO: Figure out how to structure this properly for execution with Dash
