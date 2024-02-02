@@ -75,6 +75,7 @@ class GraphEnricher(RouteHelper):
         available be running."""
         self.tagger.tag_nodes()
         self.tagger.tag_edges()
+        self.graph = self.tagger.graph
 
     def condense_graph(self):
         """Reduce the size of the internal graph by removing any nodes which
