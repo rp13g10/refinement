@@ -71,9 +71,6 @@ class RouteConfig:
         max_candidates (int): The maximum number of candidate routes which
           should be held in memory. Lower this to increase calculation speed,
           increase it to potentially increase the quality of routes generated.
-        max_condense_passes (int): Determines how many times the internal map
-          should be processed to minimise its size. Decreasing this may improve
-          processing times, but the benefit is likely to be negligible.
     """
 
     start_lat: float
@@ -81,7 +78,6 @@ class RouteConfig:
     max_distance: float
     route_mode: str
     max_candidates: int = 32000
-    max_condense_passes: int = 5
 
 
 @dataclass

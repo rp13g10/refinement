@@ -149,6 +149,15 @@ class GraphTagger(RouteHelper):
             else:
                 to_delete.add(node_id)
 
+        for node_id in self.graph.nodes:
+            node_data = self.graph.nodes[node_id]
+            if 'elevation' not in node_data:
+                to_delete.add(node_id)
+            elif 'lat' not in node_data:
+                to_delete.add(node_id)
+            elif 'lon' not in node_data:
+                to_delete.add(node_id)
+
         # Remove nodes with no elevation data
         self.graph.remove_nodes_from(to_delete)
 
@@ -161,7 +170,7 @@ class GraphTagger(RouteHelper):
         try:
             self.load_graph("graph_with_nodes.nx")
         except FileNotFoundError:
-            self._precompute_node_elevations()
+            # self._precompute_node_elevations()
             self._apply_node_elevations()
             self.store_graph("graph_with_nodes.nx")
 
@@ -301,6 +310,6 @@ class GraphTagger(RouteHelper):
         try:
             self.load_graph("graph_with_edges.nx")
         except FileNotFoundError:
-            self._precompute_edge_elevations()
+            # self._precompute_edge_elevations()
             self._apply_edge_changes()
             self.store_graph("graph_with_edges.nx")
