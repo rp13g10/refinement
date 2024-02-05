@@ -13,7 +13,13 @@ import pandas as pd
 import pickle
 from networkx import Graph
 from pyspark.sql import SparkSession, SQLContext, DataFrame, functions as F
-from pyspark.sql.types import StructType, StructField, LongType, DoubleType
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    LongType,
+    DoubleType,
+    StringType,
+)
 
 from relevation import get_elevation, get_distance_and_elevation_change
 
@@ -108,7 +114,7 @@ class GraphTagger(RouteHelper):
         )
 
         nodes_df = self.sql.createDataFrame(data=node_list, schema=node_schema)
-        nodes_df = nodes_df.repartition(ceil(len(node_list)/10000))
+        nodes_df = nodes_df.repartition(ceil(len(node_list) / 10000))
 
         return nodes_df
 
@@ -151,11 +157,11 @@ class GraphTagger(RouteHelper):
 
         for node_id in self.graph.nodes:
             node_data = self.graph.nodes[node_id]
-            if 'elevation' not in node_data:
+            if "elevation" not in node_data:
                 to_delete.add(node_id)
-            elif 'lat' not in node_data:
+            elif "lat" not in node_data:
                 to_delete.add(node_id)
-            elif 'lon' not in node_data:
+            elif "lon" not in node_data:
                 to_delete.add(node_id)
 
         # Remove nodes with no elevation data
@@ -176,7 +182,7 @@ class GraphTagger(RouteHelper):
 
     def _get_edge_details(
         self,
-    ) -> List[Tuple[int, float, float, int, float, float]]:
+    ) -> List[Tuple[int, float, float, int, float, float, str]]:
         """Extracts the start and end points for each edge in the internal
         graph, returns both their IDs and lat/lon coordinates as a tuple
         for each edge in the graph.
@@ -189,19 +195,14 @@ class GraphTagger(RouteHelper):
         all_edges = (
             (
                 start_id,
-                self.fetch_node_coords(start_id),
+                *self.fetch_node_coords(start_id),
                 end_id,
-                self.fetch_node_coords(end_id),
+                *self.fetch_node_coords(end_id),
+                self.graph[start_id][end_id].get("highway"),
             )
             for start_id, end_id in self.graph.edges()
         )
-        all_edges = [
-            (start_id, start_lat, start_lon, end_id, end_lat, end_lon)
-            for start_id, (start_lat, start_lon), end_id, (
-                end_lat,
-                end_lon,
-            ) in all_edges
-        ]
+
         return all_edges  # type: ignore
 
     def _get_edge_df(self) -> DataFrame:
@@ -221,10 +222,11 @@ class GraphTagger(RouteHelper):
                 StructField("end_id", LongType()),
                 StructField("end_lat", DoubleType()),
                 StructField("end_lon", DoubleType()),
+                StructField("type", StringType()),
             ]
         )
         edge_df = self.sql.createDataFrame(data=edge_list, schema=edge_schema)
-        edge_df = edge_df.repartition(ceil(len(edge_list)/10000))
+        edge_df = edge_df.repartition(ceil(len(edge_list) / 10000))
 
         return edge_df
 
@@ -258,6 +260,7 @@ class GraphTagger(RouteHelper):
             F.col("changes.distance").alias("distance"),
             F.col("changes.elevation_gain").alias("elevation_gain"),
             F.col("changes.elevation_loss").alias("elevation_loss"),
+            "type",
         )
 
         edge_df = edge_df.write.parquet(
@@ -278,6 +281,7 @@ class GraphTagger(RouteHelper):
             dist_change = row["distance"]  # type: ignore
             elevation_gain = row["elevation_gain"]  # type: ignore
             elevation_loss = row["elevation_loss"]  # type: ignore
+            type_ = row["type"]
 
             data = self.graph[start_id][end_id]
 
@@ -285,13 +289,20 @@ class GraphTagger(RouteHelper):
             data["elevation_gain"] = elevation_gain
             data["elevation_loss"] = elevation_loss
             data["via"] = []
+            data["type"] = type_
 
             # Clear out any other attributes which aren't needed
             to_remove = [
                 attr
                 for attr in data
                 if attr
-                not in {"distance", "elevation_gain", "elevation_loss", "via"}
+                not in {
+                    "distance",
+                    "elevation_gain",
+                    "elevation_loss",
+                    "via",
+                    "type",
+                }
             ]
             for attr in to_remove:
                 del data[attr]
