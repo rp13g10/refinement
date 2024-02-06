@@ -176,7 +176,7 @@ class GraphTagger(RouteHelper):
         try:
             self.load_graph("graph_with_nodes.nx")
         except FileNotFoundError:
-            # self._precompute_node_elevations()
+            self._precompute_node_elevations()
             self._apply_node_elevations()
             self.store_graph("graph_with_nodes.nx")
 
@@ -192,7 +192,7 @@ class GraphTagger(RouteHelper):
               each tuple contains: start_id, start_lat, start_lon, end_id,
               end_lat, end_lon
         """
-        all_edges = (
+        all_edges = [
             (
                 start_id,
                 *self.fetch_node_coords(start_id),
@@ -201,7 +201,7 @@ class GraphTagger(RouteHelper):
                 self.graph[start_id][end_id].get("highway"),
             )
             for start_id, end_id in self.graph.edges()
-        )
+        ]
 
         return all_edges  # type: ignore
 
@@ -321,6 +321,6 @@ class GraphTagger(RouteHelper):
         try:
             self.load_graph("graph_with_edges.nx")
         except FileNotFoundError:
-            # self._precompute_edge_elevations()
+            self._precompute_edge_elevations()
             self._apply_edge_changes()
             self.store_graph("graph_with_edges.nx")

@@ -10,9 +10,9 @@ import os
 from refinement.containers import TaggingConfig
 from refinement.enricher import GraphEnricher
 
-# TODO: Evaluate memory footprint of networkx graph, if necessary look at
-#       ways to parallelize it
-# TODO: Evaluate potential for switching over to Apache GraphX
+# TODO: Switch this over to using graphframes
+# TODO: Move graph condensing into webapp, after user has selected desired
+#       path types.
 
 config = TaggingConfig(
     data_dir="/home/ross/repos/refinement/data",
