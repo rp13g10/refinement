@@ -10,6 +10,10 @@ import os
 from refinement.containers import TaggingConfig
 from refinement.enricher import GraphEnricher
 
+# TODO: Split initial dump to parquet and enrichment process across
+#       two scripts. Ensures full graph not in memory while tagging nodes
+#       with elevation data.
+
 # TODO: Switch this over to using graphframes
 # TODO: Move graph condensing into webapp, after user has selected desired
 #       path types.
@@ -24,9 +28,3 @@ enricher = GraphEnricher(
     os.path.join(config.data_dir, "hampshire-latest.json"), config
 )
 enricher.enrich_graph()
-
-enricher.save_graph(os.path.join(config.data_dir, "full_graph.nx"))
-
-enricher.condense_graph()
-
-enricher.save_graph(os.path.join(config.data_dir, "condensed_graph.nx"))

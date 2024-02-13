@@ -6,28 +6,24 @@ this can be an extremely heavy script. It is however set up to scale, so
 should be well suited to containerised execution."""
 
 import os
-from math import ceil
-from typing import List, Tuple
+from typing import Tuple
 
-import pandas as pd
 import pickle
 from networkx import Graph
-from pyspark.sql import SparkSession, SQLContext, DataFrame, functions as F
+from pyspark import SparkContext, SparkConf
+from pyspark.sql import SQLContext, DataFrame, functions as F
 from pyspark.sql.types import (
     StructType,
     StructField,
-    LongType,
     DoubleType,
-    StringType,
 )
 
 from relevation import get_elevation, get_distance_and_elevation_change
 
 from refinement.containers import TaggingConfig
-from refinement.graph_utils.route_helper import RouteHelper
 
 
-class GraphTagger(RouteHelper):
+class GraphTagger:
     """Class which enriches the data which is provided by Open Street Maps.
     Unused data is stripped out, and elevation data is added for both nodes and
     edges. The graph itself is condensed, with nodes that lead to dead ends
@@ -48,31 +44,27 @@ class GraphTagger(RouteHelper):
         """
 
         # Store down core attributes
-        super().__init__(graph, config)
+        self.graph = graph
+        self.config = config
 
         # Generate internal sparkcontext
-        self.sc = (
-            SparkSession.builder.appName("refinement")  # type: ignore
-            .master("local[10]")
-            .getOrCreate()
-        )
+        conf = SparkConf()
+        conf = conf.setAppName("refinement")
+        conf = conf.setMaster("local[10]")
+        conf = conf.set("spark.driver.memory", "2g")
 
+        sc = SparkContext(conf=conf)
+        sc.setLogLevel("WARN")
+        self.sc = sc.getOrCreate()
         self.sql = SQLContext(self.sc)
 
-    def _get_node_details(self) -> List[Tuple[int, int, int]]:
-        """Extracts the node_id, latitude and longitude for each node. Returns
-        a list of tuples containing this information.
-
-        Returns:
-            List[Tuple[int, int, int]]: A list of tuples containing for each
-              node in the graph: id, latitude, longitude
-        """
-
-        all_coords = [
-            (node_id, node_attrs["lat"], node_attrs["lon"])
-            for node_id, node_attrs in self.graph.nodes.items()
-        ]
-        return all_coords
+    def fetch_node_coords(self, node_id: int) -> Tuple[int, int]:
+        """Convenience function, retrieves the latitude and longitude for a
+        single node in a graph."""
+        node = self.graph.nodes[node_id]
+        lat = node["lat"]
+        lon = node["lon"]
+        return lat, lon
 
     def store_graph(self, fname: str):
         """Convenience function which will pickle the internal graph to the
@@ -97,146 +89,68 @@ class GraphTagger(RouteHelper):
             graph = pickle.load(fobj)
         self.graph = graph
 
-    def _get_node_df(self) -> DataFrame:
-        """Fetches a spark dataframe containing the id, lat and lon for each
-        node in the internal graph.
-
-        Returns:
-            DataFrame: A spark dataframe containing id, lat and lon columns
-        """
-        node_list = self._get_node_details()
-        node_schema = StructType(
-            [
-                StructField("node_id", LongType()),
-                StructField("lat", DoubleType()),
-                StructField("lon", DoubleType()),
-            ]
-        )
-
-        nodes_df = self.sql.createDataFrame(data=node_list, schema=node_schema)
-        nodes_df = nodes_df.repartition(ceil(len(node_list) / 10000))
-
-        return nodes_df
-
-    def _precompute_node_elevations(self):
+    def enrich_nodes(self):
         """Generates a parquet dataset containing for each node ID, the
         elevation as calculated by the relevation package.
         """
-        node_df = self._get_node_df()
 
-        _get_elevation_udf = F.udf(get_elevation, returnType=DoubleType())
+        node_df = self.sql.read.parquet(
+            os.path.join(self.config.data_dir, "raw_nodes")
+        )
+
+        no_partitions = node_df.count() // 10000
+        node_df = node_df.repartition(no_partitions)
+
+        get_elevation_udf = F.udf(get_elevation, returnType=DoubleType())
 
         node_df = node_df.withColumn(
-            "elevation", _get_elevation_udf("lat", "lon")
+            "elevation", get_elevation_udf("lat", "lon")
         )
 
-        node_df = node_df.select("node_id", "elevation")
+        node_df = node_df.dropna(subset="elevation")
 
-        node_df.write.parquet(
-            os.path.join(self.config.data_dir, "node_elevations")
+        node_df = node_df.select("node_id", "lat", "lon", "elevation")
+
+        node_df.write.mode("overwrite").parquet(
+            os.path.join(self.config.data_dir, "enriched_nodes")
         )
 
-    def _apply_node_elevations(self):
-        """Reads in the contents of the precomputed node elevations dataset
-        and applies the elevation data to the internal graph.
-        """
+    def _filter_edges_by_nodes(self, edges: DataFrame, nodes: DataFrame):
 
-        elevations_df = pd.read_parquet(
-            os.path.join(self.config.data_dir, "node_elevations")
+        start_flags = nodes.select(
+            F.col("node_id").alias("start_id"), F.lit(True).alias("start_flag")
         )
-        elevations_df = elevations_df.set_index("node_id", drop=True)
-        elevations = elevations_df["elevation"].to_dict()
-        del elevations_df
-
-        to_delete = set()
-        for node_id, elevation in elevations.items():
-            if pd.notna(elevation):
-                self.graph.nodes[node_id]["elevation"] = elevation
-            else:
-                to_delete.add(node_id)
-
-        for node_id in self.graph.nodes:
-            node_data = self.graph.nodes[node_id]
-            if "elevation" not in node_data:
-                to_delete.add(node_id)
-            elif "lat" not in node_data:
-                to_delete.add(node_id)
-            elif "lon" not in node_data:
-                to_delete.add(node_id)
-
-        # Remove nodes with no elevation data
-        self.graph.remove_nodes_from(to_delete)
-
-    def tag_nodes(self):
-        """Enriches all nodes in the internal graph with elevation data, if
-        elevation data for a node is not present (i.e. the relevant file has
-        not yet been ingested into the backend database for the relevation
-        package) then the node will be removed from the graph.
-        """
-        try:
-            self.load_graph("graph_with_nodes.nx")
-        except FileNotFoundError:
-            self._precompute_node_elevations()
-            self._apply_node_elevations()
-            self.store_graph("graph_with_nodes.nx")
-
-    def _get_edge_details(
-        self,
-    ) -> List[Tuple[int, float, float, int, float, float, str]]:
-        """Extracts the start and end points for each edge in the internal
-        graph, returns both their IDs and lat/lon coordinates as a tuple
-        for each edge in the graph.
-
-        Returns:
-            List[Tuple[int, float, float, int, float, float]]: A list in which
-              each tuple contains: start_id, start_lat, start_lon, end_id,
-              end_lat, end_lon
-        """
-        all_edges = [
-            (
-                start_id,
-                *self.fetch_node_coords(start_id),
-                end_id,
-                *self.fetch_node_coords(end_id),
-                self.graph[start_id][end_id].get("highway"),
-            )
-            for start_id, end_id in self.graph.edges()
-        ]
-
-        return all_edges  # type: ignore
-
-    def _get_edge_df(self) -> DataFrame:
-        """Fetches a spark dataframe containing the ID and lat/lon coordinates
-        for the start & end point of each edge in the internal graph.
-
-        Returns:
-            DataFrame: A spark dataframe containing: start_id, start_lat,
-              start_lon, end_id, end_lat, end_lon
-        """
-        edge_list = self._get_edge_details()
-        edge_schema = StructType(
-            [
-                StructField("start_id", LongType()),
-                StructField("start_lat", DoubleType()),
-                StructField("start_lon", DoubleType()),
-                StructField("end_id", LongType()),
-                StructField("end_lat", DoubleType()),
-                StructField("end_lon", DoubleType()),
-                StructField("type", StringType()),
-            ]
+        end_flags = nodes.select(
+            F.col("node_id").alias("end_id"), F.lit(True).alias("end_flag")
         )
-        edge_df = self.sql.createDataFrame(data=edge_list, schema=edge_schema)
-        edge_df = edge_df.repartition(ceil(len(edge_list) / 10000))
 
-        return edge_df
+        edges = edges.join(start_flags, on="start_id", how="left")
+        edges = edges.join(end_flags, on="end_id", how="left")
 
-    def _precompute_edge_elevations(self):
+        edges = edges.filter(F.col("start_flag") & F.col("end_flag"))
+
+        edges = edges.drop("start_flag", "end_flag")
+
+        return edges
+
+    def enrich_edges(self):
         """Generates a parquet dataset containing the distance change,
         elevation gain and elevation loss for each edge in the internal graph
         """
-        edge_df = self._get_edge_df()
 
-        _get_distance_and_elevation_change_udf = F.udf(
+        edge_df = self.sql.read.parquet(
+            os.path.join(self.config.data_dir, "raw_edges")
+        )
+
+        node_df = self.sql.read.parquet(
+            os.path.join(self.config.data_dir, "enriched_nodes")
+        )
+
+        edge_df = self._filter_edges_by_nodes(edge_df, node_df)
+        no_partitions = edge_df.count() // 10000
+        edge_df = edge_df.repartition(no_partitions)
+
+        get_distance_and_elevation_change_udf = F.udf(
             get_distance_and_elevation_change,
             returnType=StructType(
                 [
@@ -249,7 +163,7 @@ class GraphTagger(RouteHelper):
 
         edge_df = edge_df.withColumn(
             "changes",
-            _get_distance_and_elevation_change_udf(
+            get_distance_and_elevation_change_udf(
                 "start_lat", "start_lon", "end_lat", "end_lon"
             ),
         )
@@ -263,64 +177,10 @@ class GraphTagger(RouteHelper):
             "type",
         )
 
+        edge_df = edge_df.dropna(
+            subset=["elevation_gain", "elevation_loss"], how="any"
+        )
+
         edge_df = edge_df.write.parquet(
-            os.path.join(self.config.data_dir, "edge_elevations")
+            os.path.join(self.config.data_dir, "enriched_edges")
         )
-
-    def _apply_edge_changes(self):
-        """Reads in the contents of the precomputed edge elevations dataset
-        and applies the data to the internal graph."""
-
-        edge_changes_df = pd.read_parquet(
-            os.path.join(self.config.data_dir, "edge_elevations")
-        )
-
-        for _, row in edge_changes_df.iterrows():
-            start_id = row["start_id"]  # type: ignore
-            end_id = row["end_id"]  # type: ignore
-            dist_change = row["distance"]  # type: ignore
-            elevation_gain = row["elevation_gain"]  # type: ignore
-            elevation_loss = row["elevation_loss"]  # type: ignore
-            type_ = row["type"]
-
-            data = self.graph[start_id][end_id]
-
-            data["distance"] = dist_change
-            data["elevation_gain"] = elevation_gain
-            data["elevation_loss"] = elevation_loss
-            data["via"] = []
-            data["type"] = type_
-
-            # Clear out any other attributes which aren't needed
-            to_remove = [
-                attr
-                for attr in data
-                if attr
-                not in {
-                    "distance",
-                    "elevation_gain",
-                    "elevation_loss",
-                    "via",
-                    "type",
-                }
-            ]
-            for attr in to_remove:
-                del data[attr]
-
-        # to_remove = set()
-        # for start_id, end_id in self.graph.edges():
-        #     data = self.graph[start_id][end_id]
-        #     if "distance" not in data:
-        #         to_remove.add((start_id, end_id))
-        # self.graph.remove_edges_from(to_remove)
-
-    def tag_edges(self):
-        """Enriches all of the edges in the internal graph with distances,
-        elevation gains and elevation losses. This should not be called
-        until tag_nodes has already been run."""
-        try:
-            self.load_graph("graph_with_edges.nx")
-        except FileNotFoundError:
-            self._precompute_edge_elevations()
-            self._apply_edge_changes()
-            self.store_graph("graph_with_edges.nx")
