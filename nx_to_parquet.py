@@ -1,3 +1,7 @@
+"""Initial pre-processing script, extracts node and edge details from the
+provided .json graph. These details are saved down to parquet, so that they
+are ready to be tagged with elevation data by spark."""
+
 import os
 
 from refinement.containers import TaggingConfig

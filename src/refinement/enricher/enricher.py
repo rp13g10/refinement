@@ -1,15 +1,8 @@
-"""Contains the GraphTagger class, which enriches OSM data with elevation data
-for both nodes and edges.
-
-Depending on the amount of data which has been loaded into the relevation db,
-this can be an extremely heavy script. It is however set up to scale, so
-should be well suited to containerised execution."""
+"""Contains the GraphEnricher class, used to add additional data points
+to the provided OSM graph."""
 
 import os
-from typing import Tuple
 
-import pickle
-from networkx import Graph
 from pyspark import SparkContext, SparkConf
 from pyspark.sql import SQLContext, DataFrame, functions as F
 from pyspark.sql.types import (
@@ -22,8 +15,11 @@ from relevation import get_elevation, get_distance_and_elevation_change
 
 from refinement.containers import TaggingConfig
 
+# TODO: Investigate whether using graphframes helps to speed up the tagging
+#       process. Filtering edges is currently an expensive operation.
 
-class GraphTagger:
+
+class GraphEnricher:
     """Class which enriches the data which is provided by Open Street Maps.
     Unused data is stripped out, and elevation data is added for both nodes and
     edges. The graph itself is condensed, with nodes that lead to dead ends
@@ -32,19 +28,19 @@ class GraphTagger:
 
     def __init__(
         self,
-        graph: Graph,
         config: TaggingConfig,
     ):
         """Create an instance of the graph enricher class based on the
         contents of the networkx graph specified by `source_path`
 
         Args:
-            graph (Graph): The network graph to be enriched with elevation data
-            config (TaggingConfig): User configuration options
+            source_path (str): The location of the networkx graph to be
+              enriched. The graph must have been saved to json format.
+            config (RouteConfig): A configuration file detailing the route
+              requested by the user.
         """
 
         # Store down core attributes
-        self.graph = graph
         self.config = config
 
         # Generate internal sparkcontext
@@ -57,37 +53,6 @@ class GraphTagger:
         sc.setLogLevel("WARN")
         self.sc = sc.getOrCreate()
         self.sql = SQLContext(self.sc)
-
-    def fetch_node_coords(self, node_id: int) -> Tuple[int, int]:
-        """Convenience function, retrieves the latitude and longitude for a
-        single node in a graph."""
-        node = self.graph.nodes[node_id]
-        lat = node["lat"]
-        lon = node["lon"]
-        return lat, lon
-
-    def store_graph(self, fname: str):
-        """Convenience function which will pickle the internal graph to the
-        specified location.
-
-        Args:
-            fname (str): The location where the internal graph should be saved,
-              relative to the configured data directory.
-        """
-        with open(os.path.join(self.config.data_dir, fname), "wb") as fobj:
-            pickle.dump(self.graph, fobj)
-
-    def load_graph(self, fname: str):
-        """Convenience function which will unpickle the internal graph from
-        the specified location.
-
-        Args:
-            fname (str): The location where the internal graph should be
-              loaded from, relative to the configured data directory
-        """
-        with open(os.path.join(self.config.data_dir, fname), "rb") as fobj:
-            graph = pickle.load(fobj)
-        self.graph = graph
 
     def enrich_nodes(self):
         """Generates a parquet dataset containing for each node ID, the
@@ -184,3 +149,10 @@ class GraphTagger:
         edge_df = edge_df.write.parquet(
             os.path.join(self.config.data_dir, "enriched_edges")
         )
+
+    def enrich_graph(self):
+        """Process the provided graph, tagging all nodes and edges with
+        elevation data. This requires that a cassandra database with LIDAR data
+        available be running."""
+        # self.tagger.enrich_nodes()
+        self.enrich_edges()
