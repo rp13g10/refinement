@@ -74,7 +74,7 @@ class GraphEnricher:
 
         node_df = node_df.dropna(subset="elevation")
 
-        node_df = node_df.select("node_id", "lat", "lon", "elevation")
+        node_df = node_df.select("id", "lat", "lon", "elevation")
 
         node_df.write.mode("overwrite").parquet(
             os.path.join(self.config.data_dir, "enriched_nodes")
@@ -83,14 +83,14 @@ class GraphEnricher:
     def _filter_edges_by_nodes(self, edges: DataFrame, nodes: DataFrame):
 
         start_flags = nodes.select(
-            F.col("node_id").alias("start_id"), F.lit(True).alias("start_flag")
+            F.col("id").alias("src"), F.lit(True).alias("start_flag")
         )
         end_flags = nodes.select(
-            F.col("node_id").alias("end_id"), F.lit(True).alias("end_flag")
+            F.col("id").alias("dst"), F.lit(True).alias("end_flag")
         )
 
-        edges = edges.join(start_flags, on="start_id", how="left")
-        edges = edges.join(end_flags, on="end_id", how="left")
+        edges = edges.join(start_flags, on="src", how="left")
+        edges = edges.join(end_flags, on="dst", how="left")
 
         edges = edges.filter(F.col("start_flag") & F.col("end_flag"))
 
@@ -129,13 +129,13 @@ class GraphEnricher:
         edge_df = edge_df.withColumn(
             "changes",
             get_distance_and_elevation_change_udf(
-                "start_lat", "start_lon", "end_lat", "end_lon"
+                "src_lat", "src_lon", "dst_lat", "dst_lon"
             ),
         )
 
         edge_df = edge_df.select(
-            "start_id",
-            "end_id",
+            "src",
+            "dst",
             F.col("changes.distance").alias("distance"),
             F.col("changes.elevation_gain").alias("elevation_gain"),
             F.col("changes.elevation_loss").alias("elevation_loss"),
@@ -154,5 +154,5 @@ class GraphEnricher:
         """Process the provided graph, tagging all nodes and edges with
         elevation data. This requires that a cassandra database with LIDAR data
         available be running."""
-        # self.tagger.enrich_nodes()
+        self.enrich_nodes()
         self.enrich_edges()

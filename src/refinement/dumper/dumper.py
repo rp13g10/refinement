@@ -91,7 +91,7 @@ class Dumper:
         node_list = self._get_node_details()
         node_schema = StructType(
             [
-                StructField("node_id", LongType()),
+                StructField("id", LongType()),
                 StructField("lat", DoubleType()),
                 StructField("lon", DoubleType()),
             ]
@@ -114,8 +114,8 @@ class Dumper:
 
         Returns:
             List[Tuple[int, float, float, int, float, float]]: A list in which
-              each tuple contains: start_id, start_lat, start_lon, end_id,
-              end_lat, end_lon
+              each tuple contains: start_id, src_lat, src_lon, end_id,
+              dst_lat, dst_lon
         """
         all_edges = [
             (
@@ -135,18 +135,18 @@ class Dumper:
         for the start & end point of each edge in the internal graph.
 
         Returns:
-            DataFrame: A spark dataframe containing: start_id, start_lat,
-              start_lon, end_id, end_lat, end_lon
+            DataFrame: A spark dataframe containing: start_id, src_lat,
+              src_lon, end_id, dst_lat, dst_lon
         """
         edge_list = self._get_edge_details()
         edge_schema = StructType(
             [
-                StructField("start_id", LongType()),
-                StructField("start_lat", DoubleType()),
-                StructField("start_lon", DoubleType()),
-                StructField("end_id", LongType()),
-                StructField("end_lat", DoubleType()),
-                StructField("end_lon", DoubleType()),
+                StructField("src", LongType()),
+                StructField("src_lat", DoubleType()),
+                StructField("src_lon", DoubleType()),
+                StructField("dst", LongType()),
+                StructField("dst_lat", DoubleType()),
+                StructField("dst_lon", DoubleType()),
                 StructField("type", StringType()),
             ]
         )
