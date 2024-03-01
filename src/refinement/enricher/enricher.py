@@ -48,6 +48,10 @@ class GraphEnricher:
         conf = conf.setAppName("refinement")
         conf = conf.setMaster("local[10]")
         conf = conf.set("spark.driver.memory", "2g")
+        conf = conf.set(
+            "spark.sql.adaptive.coalescePartitions.enabled", "false"
+        )
+        conf = conf.set("spark.sql.files.maxPartitionBytes", "1048576")
 
         sc = SparkContext(conf=conf)
         sc.setLogLevel("WARN")
@@ -63,8 +67,8 @@ class GraphEnricher:
             os.path.join(self.config.data_dir, "raw_nodes")
         )
 
-        no_partitions = node_df.count() // 10000
-        node_df = node_df.repartition(no_partitions)
+        # no_partitions = node_df.count() // 10000
+        # node_df = node_df.repartition(no_partitions)
 
         get_elevation_udf = F.udf(get_elevation, returnType=DoubleType())
 
@@ -112,8 +116,8 @@ class GraphEnricher:
         )
 
         edge_df = self._filter_edges_by_nodes(edge_df, node_df)
-        no_partitions = edge_df.count() // 10000
-        edge_df = edge_df.repartition(no_partitions)
+        # no_partitions = edge_df.count() // 10000
+        # edge_df = edge_df.repartition(no_partitions)
 
         get_distance_and_elevation_change_udf = F.udf(
             get_distance_and_elevation_change,
