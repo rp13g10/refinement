@@ -67,9 +67,6 @@ class GraphEnricher:
             os.path.join(self.config.data_dir, "raw_nodes")
         )
 
-        # no_partitions = node_df.count() // 10000
-        # node_df = node_df.repartition(no_partitions)
-
         get_elevation_udf = F.udf(get_elevation, returnType=DoubleType())
 
         node_df = node_df.withColumn(
@@ -78,11 +75,13 @@ class GraphEnricher:
 
         node_df = node_df.dropna(subset="elevation")
 
-        node_df = node_df.select("id", "lat", "lon", "elevation")
-
-        node_df.write.mode("overwrite").parquet(
-            os.path.join(self.config.data_dir, "enriched_nodes")
+        node_df = node_df.select(
+            "id", "lat", "lon", "elevation", "easting_ptn", "northing_ptn"
         )
+
+        node_df.write.mode("overwrite").partitionBy(
+            "easting_ptn", "northing_ptn"
+        ).parquet(os.path.join(self.config.data_dir, "enriched_nodes"))
 
     def _filter_edges_by_nodes(self, edges: DataFrame, nodes: DataFrame):
 
@@ -116,8 +115,6 @@ class GraphEnricher:
         )
 
         edge_df = self._filter_edges_by_nodes(edge_df, node_df)
-        # no_partitions = edge_df.count() // 10000
-        # edge_df = edge_df.repartition(no_partitions)
 
         get_distance_and_elevation_change_udf = F.udf(
             get_distance_and_elevation_change,
@@ -144,15 +141,17 @@ class GraphEnricher:
             F.col("changes.elevation_gain").alias("elevation_gain"),
             F.col("changes.elevation_loss").alias("elevation_loss"),
             "type",
+            "easting_ptn",
+            "northing_ptn",
         )
 
         edge_df = edge_df.dropna(
             subset=["elevation_gain", "elevation_loss"], how="any"
         )
 
-        edge_df = edge_df.write.parquet(
-            os.path.join(self.config.data_dir, "enriched_edges")
-        )
+        edge_df = edge_df.write.partitionBy(
+            "easting_ptn", "northing_ptn"
+        ).parquet(os.path.join(self.config.data_dir, "enriched_edges"))
 
     def enrich_graph(self):
         """Process the provided graph, tagging all nodes and edges with

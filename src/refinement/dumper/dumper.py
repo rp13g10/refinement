@@ -1,6 +1,8 @@
 import json
 import os
 from typing import List, Tuple
+
+from bng_latlon import WGS84toOSGB36
 from networkx import Graph
 from networkx.readwrite import json_graph
 
@@ -12,6 +14,7 @@ from pyspark.sql.types import (
     LongType,
     DoubleType,
     StringType,
+    IntegerType,
 )
 
 from refinement.containers import TaggingConfig
@@ -74,10 +77,22 @@ class Dumper:
               node in the graph: id, latitude, longitude
         """
 
-        all_coords = [
-            (node_id, node_attrs["lat"], node_attrs["lon"])
-            for node_id, node_attrs in self.graph.nodes.items()
-        ]
+        all_coords = []
+        for node_id, node_attrs in self.graph.nodes.items():
+            node_lat = node_attrs["lat"]
+            node_lon = node_attrs["lon"]
+            node_easting, node_northing = WGS84toOSGB36(node_lat, node_lon)
+            node_easting_ptn = int(node_easting) // 100
+            node_northing_ptn = int(node_northing) // 100
+            all_coords.append(
+                (
+                    node_id,
+                    node_lat,
+                    node_lon,
+                    node_easting_ptn,
+                    node_northing_ptn,
+                )
+            )
 
         return all_coords
 
@@ -94,16 +109,16 @@ class Dumper:
                 StructField("id", LongType()),
                 StructField("lat", DoubleType()),
                 StructField("lon", DoubleType()),
+                StructField("easting_ptn", IntegerType()),
+                StructField("northing_ptn", IntegerType()),
             ]
         )
 
         nodes_df = self.sql.createDataFrame(data=node_list, schema=node_schema)
 
-        nodes_df = nodes_df.repartition(len(node_list) // 10000)
-
-        nodes_df.write.mode("overwrite").parquet(
-            os.path.join(self.config.data_dir, "raw_nodes")
-        )
+        nodes_df.write.mode("overwrite").partitionBy(
+            "easting_ptn", "northing_ptn"
+        ).parquet(os.path.join(self.config.data_dir, "raw_nodes"))
 
     def _get_edge_details(
         self,
@@ -117,16 +132,28 @@ class Dumper:
               each tuple contains: start_id, src_lat, src_lon, end_id,
               dst_lat, dst_lon
         """
-        all_edges = [
-            (
-                start_id,
-                *self.fetch_node_coords(start_id),
-                end_id,
-                *self.fetch_node_coords(end_id),
-                self.graph[start_id][end_id].get("highway"),
+
+        all_edges = []
+        for start_id, end_id in self.graph.edges():
+            edge_type = self.graph[start_id][end_id].get("highway")
+            start_lat, start_lon = self.fetch_node_coords(start_id)
+            end_lat, end_lon = self.fetch_node_coords(end_id)
+            start_easting, start_northing = WGS84toOSGB36(start_lat, start_lon)
+            easting_ptn = int(start_easting) // 100
+            northing_ptn = int(start_northing) // 100
+            all_edges.append(
+                (
+                    start_id,
+                    end_id,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    edge_type,
+                    easting_ptn,
+                    northing_ptn,
+                )
             )
-            for start_id, end_id in self.graph.edges()
-        ]
 
         return all_edges  # type: ignore
 
@@ -142,21 +169,21 @@ class Dumper:
         edge_schema = StructType(
             [
                 StructField("src", LongType()),
+                StructField("dst", LongType()),
                 StructField("src_lat", DoubleType()),
                 StructField("src_lon", DoubleType()),
-                StructField("dst", LongType()),
                 StructField("dst_lat", DoubleType()),
                 StructField("dst_lon", DoubleType()),
                 StructField("type", StringType()),
+                StructField("easting_ptn", IntegerType()),
+                StructField("northing_ptn", IntegerType()),
             ]
         )
         edge_df = self.sql.createDataFrame(data=edge_list, schema=edge_schema)
 
-        edge_df = edge_df.repartition(len(edge_list) // 10000)
-
-        edge_df.write.mode("overwrite").parquet(
-            os.path.join(self.config.data_dir, "raw_edges")
-        )
+        edge_df.write.mode("overwrite").partitionBy(
+            "easting_ptn", "northing_ptn"
+        ).parquet(os.path.join(self.config.data_dir, "raw_edges"))
 
     def store_raw_graph_to_disk(self):
 
